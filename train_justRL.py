@@ -29,22 +29,22 @@ def justrl_reward_func(completions, answer, **kwargs):
         rewards.append(1.0 if (matches and matches[-1].strip() == ground_truth) else 0.0)
     return rewards
 
-# GRPO Config (Corrected Arguments)
+# GRPO Config 
 training_args = GRPOConfig(
     output_dir="./justrl-original-weights",
     learning_rate=1e-6,
     lr_scheduler_type="constant",
     max_steps=3440,
     per_device_train_batch_size=1,
-    gradient_accumulation_steps=64, # Increased for 1-GPU Global Batch 256
-    num_generations=8,              #  8 to fit 24GB 
+    gradient_accumulation_steps=16, # Increased for 1-GPU Global Batch 256
+    num_generations=8,              
     beta=0.0,
     bf16=True,
     gradient_checkpointing=True,
-    # MOVE model_init_kwargs here:
     model_init_kwargs={
-        "torch_dtype": torch.bfloat16,
+        "dtype": torch.bfloat16,
         "attn_implementation": "flash_attention_2",
+         "device_map": None,
     },
     report_to="wandb",
     save_steps=500,
