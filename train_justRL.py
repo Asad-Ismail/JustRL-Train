@@ -46,18 +46,22 @@ training_args = GRPOConfig(
     output_dir="./justrl-original-weights",
     learning_rate=1e-6,
     lr_scheduler_type="constant",
-    max_steps=3440,
+    max_steps=3440,                # JustRL Paper Step count
     per_device_train_batch_size=1,
-    gradient_accumulation_steps=16, # Increased for 1-GPU Global Batch 256
-    num_generations=8,
-    max_completion_length=15360,            
+    gradient_accumulation_steps=12, # (1 * 4 * 64) = 256 Global Batch Size
+    num_generations=4,             # Keep at 4 for A10G VRAM safety
+    max_completion_length=12000,     # Safer for 24GB VRAM
     beta=0.0,
     bf16=True,
     gradient_checkpointing=True,
-    deepspeed="./configs/ds_config.json",
+    # vLLM Acceleration
+    use_vllm=True,
+    vllm_mode="colocate",               # Embeds vLLM in each training process
+    vllm_gpu_memory_utilization=0.4,    # Reserve 40% for generation rollouts
+    deepspeed="./configs/ds_config_3.json",
     model_init_kwargs={
         "dtype": torch.bfloat16,
-        #"attn_implementation": "flash_attention_2",
+        "attn_implementation": "flash_attention_2",
          "device_map": None,
     },
     report_to="wandb",
