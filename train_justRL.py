@@ -48,16 +48,17 @@ training_args = GRPOConfig(
     lr_scheduler_type="constant",
     max_steps=3440,                # JustRL Paper Step count
     per_device_train_batch_size=1,
-    gradient_accumulation_steps=12, # (1 * 4 * 64) = 256 Global Batch Size
-    num_generations=4,             # Keep at 4 for A10G VRAM safety
-    max_completion_length=12000,     # Safer for 24GB VRAM
+    gradient_accumulation_steps=8, # (1 * 8 * 8 *4) = 256 Global Batch Size
+    num_generations=8,             # Keep at 8 for A10G VRAM safety
+    max_completion_length=8192,     # Safer for 24GB VRAM
     beta=0.0,
     bf16=True,
     gradient_checkpointing=True,
     # vLLM Acceleration
     use_vllm=True,
     vllm_mode="colocate",               # Embeds vLLM in each training process
-    vllm_gpu_memory_utilization=0.4,    # Reserve 40% for generation rollouts
+    vllm_gpu_memory_utilization=0.2,    # Reserve 40% for generation rollouts
+    vllm_max_model_length=8192,
     deepspeed="./configs/ds_config_3.json",
     model_init_kwargs={
         "dtype": torch.bfloat16,
