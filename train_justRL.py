@@ -3,7 +3,7 @@ from datasets import load_dataset
 from trl import GRPOConfig, GRPOTrainer
 from transformers import AutoTokenizer
 
-os.environ["WANDB_PROJECT"] = "JustRL-Nemotron-Original"
+os.environ["WANDB_PROJECT"] = "JustRL-Nemotron"
 
 model_id = "nvidia/OpenMath-Nemotron-1.5B"
 PROMPT_SUFFIX = "\n\nPlease reason step by step, and put your final answer within \\boxed{}."
@@ -18,16 +18,12 @@ def format(ex):
         "prompt": [{"role": "user", "content": prompt_text}],
         "answer": str(ex["solution"]).strip()
     }
-
 dataset = dataset.map(format)
 
-#  Reward Logic
-def justrl_reward_func(completions, answer, **kwargs):
+def math_reward(completions, answer, **kwargs):
     rewards = []
     for completion, ground_truth in zip(completions, answer):
         content = completion[0]["content"] if isinstance(completion, list) else completion
-        #print(f"DEBUG COMPLETION: {content}")
-        #print(f"DEBUG GT: {ground_truth}")
         matches = re.findall(r"\\boxed\{(.*?)\}", content)
         rewards.append(1.0 if (matches and matches[-1].strip() == ground_truth) else 0.0)
     return rewards
@@ -41,6 +37,18 @@ def format_reward(completions, **kwargs):
         rewards.append(0.2 if "\\boxed{" in content else 0.0)
     return rewards
 
+def brevity_reward(completions, **kwargs):
+    rewards = []
+    for completion in completions:
+        # Penalize if reasoning is too long, reward if concise
+        content = completion[0]["content"]
+        token_count = len(content.split())
+        if token_count > 8000:
+            rewards.append(-0.5) # Heavy penalty for hitting the "clipping danger zone"
+        else:
+            rewards.append(0.0)
+    return rewards
+
 # GRPO Config 
 training_args = GRPOConfig(
     output_dir="./justrl-original-weights",
@@ -50,7 +58,7 @@ training_args = GRPOConfig(
     per_device_train_batch_size=1,
     gradient_accumulation_steps=8, # (1 * 8 * 8 *4) = 256 Global Batch Size
     num_generations=8,             # Keep at 8 for A10G VRAM safety
-    max_completion_length=15000,     # Safer for 24GB VRAM
+    max_completion_length=13000,     # Safer for 24GB VRAM
     beta=0.0,
     bf16=True,
     gradient_checkpointing=True,
@@ -59,7 +67,7 @@ training_args = GRPOConfig(
     use_vllm=True,
     vllm_mode="colocate",               # Embeds vLLM in each training process
     vllm_gpu_memory_utilization=0.17,    # Reserve 20% for generation rollouts
-    vllm_max_model_length=15000,
+    vllm_max_model_length=14000,
     deepspeed="./configs/ds_config_3.json",
     model_init_kwargs={
         "dtype": torch.bfloat16,
@@ -67,14 +75,13 @@ training_args = GRPOConfig(
          "device_map": None,
     },
     report_to="wandb",
-    save_steps=500,
+    save_steps=200,
     logging_steps=1,
 )
 
-#  Initialize Trainer (No model_init_kwargs here)
 trainer = GRPOTrainer(
     model=model_id,
-    reward_funcs=[justrl_reward_func,format_reward],
+    reward_funcs=[math_reward,format_reward,brevity_reward],
     args=training_args,
     train_dataset=dataset,
 )
