@@ -11,14 +11,37 @@ PROMPT_SUFFIX = "\n\nPlease reason step by step, and put your final answer withi
 # Dataset Prep with Truncation (Handles the warning)
 dataset = load_dataset("open-r1/DAPO-Math-17k-Processed", split="train")
 
+# Load Evaluation Data
+aime_eval = load_dataset("HuggingFaceH4/aime_2024", split="train")
+
 def format(ex):
-    prompt_text = ex["prompt"] + PROMPT_SUFFIX
-    # Simple character-based truncation for safety; ideally use tokenizer.encode
+    if "prompt" in ex:
+        prompt_text = ex["prompt"]
+    elif "problem" in ex:
+        prompt_text = ex["problem"]
+    else:
+        raise ValueError(f"No prompt field in example keys: {ex.keys()}")
+
+    prompt_text = prompt_text + PROMPT_SUFFIX
+
+    if "solution" in ex:
+        solution = ex["solution"]
+    elif "answer" in ex:
+        solution = ex["answer"]
+    else:
+        raise ValueError(f"No answer field in example keys: {ex.keys()}")
+
     return {
         "prompt": [{"role": "user", "content": prompt_text}],
-        "answer": str(ex["solution"]).strip()
+        "answer": str(solution).strip(),
     }
-dataset = dataset.map(format)
+
+
+
+# Prepare Datasets
+train_dataset = dataset.map(format)
+eval_dataset = aime_eval.map(format)
+
 
 def math_reward(completions, answer, **kwargs):
     rewards = []
@@ -75,15 +98,28 @@ training_args = GRPOConfig(
          "device_map": None,
     },
     report_to="wandb",
-    save_steps=200,
     logging_steps=1,
+    eval_strategy="steps",           # Evaluate periodically
+    eval_steps=50,                  # Run evaluation every 50 steps
+    per_device_eval_batch_size=1,    # Keep low for VRAM safety
+    num_generations_eval=4,
+
+    save_strategy="steps",          # Must match eval_strategy
+    save_steps=50,                  # Save at the same frequency as eval
+    save_total_limit=2,             # Keep only the best and the most recent checkpoint
+    load_best_model_at_end=True,    # Automatically load the best model when training finishes
+    
+    # This must match the name of your math reward function
+    metric_for_best_model="eval/rewards/math_reward/mean", 
+    greater_is_better=True,   
 )
 
 trainer = GRPOTrainer(
     model=model_id,
     reward_funcs=[math_reward,format_reward,brevity_reward],
     args=training_args,
-    train_dataset=dataset,
+    train_dataset=train_dataset,
+    eval_dataset=eval_dataset,
 )
 
 trainer.train()
